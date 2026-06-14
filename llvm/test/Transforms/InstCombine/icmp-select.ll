@@ -959,6 +959,141 @@ end:
 !0 = !{!"function_entry_count", i64 1000}
 !1 = !{!"branch_weights", i32 2, i32 3}
 !2 = !{!"branch_weights", i32 5, i32 7}
+
+define i1 @sub_add_select_cmp(i8 %a, i8 %b, i8 %x) {
+; CHECK-LABEL: @sub_add_select_cmp(
+; CHECK-NEXT:    [[AB:%.*]] = sub i8 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[NEG:%.*]] = icmp slt i8 [[B]], 0
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[NEG]], i8 0, i8 [[AB]]
+; CHECK-NEXT:    [[BX:%.*]] = sub i8 [[A]], [[X:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[BX]], [[SEL]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %ab = sub i8 %a, %b
+  %neg = icmp slt i8 %a, 0
+  %sel = select i1 %neg, i8 0, i8 %ab
+  %bx = sub i8 %b, %x
+  %sum = add i8 %bx, %sel
+  %cmp = icmp eq i8 %sum, 0
+  ret i1 %cmp
+}
+
+define i1 @sub_add_select_cmp_commuted1(i8 %a, i8 %b, i8 %x) {
+; CHECK-LABEL: @sub_add_select_cmp_commuted1(
+; CHECK-NEXT:    [[AB:%.*]] = sub i8 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[NEG:%.*]] = icmp slt i8 [[A]], 0
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[NEG]], i8 0, i8 [[AB]]
+; CHECK-NEXT:    [[BX_NEG:%.*]] = sub i8 [[X:%.*]], [[B]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[SEL]], [[BX_NEG]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %ab = sub i8 %a, %b
+  %neg = icmp slt i8 %a, 0
+  %sel = select i1 %neg, i8 0, i8 %ab
+  %bx = sub i8 %b, %x
+  %sum = add i8 %sel, %bx
+  %cmp = icmp eq i8 0, %sum
+  ret i1 %cmp
+}
+
+define i1 @sub_add_select_cmp_commuted2(i8 %a, i8 %b, i8 %x) {
+; CHECK-LABEL: @sub_add_select_cmp_commuted2(
+; CHECK-NEXT:    [[AB:%.*]] = sub i8 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[NEG_INV:%.*]] = icmp slt i8 [[B]], 0
+; CHECK-NEXT:    [[SEL_NEG:%.*]] = select i1 [[NEG_INV]], i8 0, i8 [[AB]]
+; CHECK-NEXT:    [[BX:%.*]] = sub i8 [[A]], [[X:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[BX]], [[SEL_NEG]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %ab = sub i8 %a, %b
+  %neg = icmp sge i8 %a, 0
+  %sel = select i1 %neg, i8 %ab, i8 0
+  %bx = sub i8 %b, %x
+  %sum = add i8 %bx, %sel
+  %cmp = icmp eq i8 %sum, 0
+  ret i1 %cmp
+}
+
+define i1 @sub_add_select_cmp_multi_use_select(i8 %a, i8 %b, i8 %x) {
+; CHECK-LABEL: @sub_add_select_cmp_multi_use_select(
+; CHECK-NEXT:    [[AB:%.*]] = sub i8 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[NEG:%.*]] = icmp slt i8 [[A]], 0
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[NEG]], i8 0, i8 [[AB]]
+; CHECK-NEXT:    call void @use(i8 [[SEL]])
+; CHECK-NEXT:    [[BX:%.*]] = sub i8 [[B]], [[X:%.*]]
+; CHECK-NEXT:    [[SUM:%.*]] = sub i8 0, [[SEL]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[BX]], [[SUM]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %ab = sub i8 %a, %b
+  %neg = icmp slt i8 %a, 0
+  %sel = select i1 %neg, i8 0, i8 %ab
+  call void @use(i8 %sel)
+  %bx = sub i8 %b, %x
+  %sum = add i8 %bx, %sel
+  %cmp = icmp eq i8 %sum, 0
+  ret i1 %cmp
+}
+
+define i1 @sub_add_select_cmp_multi_use_add(i8 %a, i8 %b, i8 %x) {
+; CHECK-LABEL: @sub_add_select_cmp_multi_use_add(
+; CHECK-NEXT:    [[AB:%.*]] = sub i8 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[NEG:%.*]] = icmp slt i8 [[A]], 0
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[NEG]], i8 0, i8 [[AB]]
+; CHECK-NEXT:    [[BX:%.*]] = sub i8 [[B]], [[X:%.*]]
+; CHECK-NEXT:    [[SUM:%.*]] = add i8 [[BX]], [[SEL]]
+; CHECK-NEXT:    call void @use(i8 [[SUM]])
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[SUM]], 0
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %ab = sub i8 %a, %b
+  %neg = icmp slt i8 %a, 0
+  %sel = select i1 %neg, i8 0, i8 %ab
+  %bx = sub i8 %b, %x
+  %sum = add i8 %bx, %sel
+  call void @use(i8 %sum)
+  %cmp = icmp eq i8 %sum, 0
+  ret i1 %cmp
+}
+
+define i1 @sub_add_select_cmp_multi_use_sub2(i8 %a, i8 %b, i8 %x) {
+; CHECK-LABEL: @sub_add_select_cmp_multi_use_sub2(
+; CHECK-NEXT:    [[AB:%.*]] = sub i8 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[NEG:%.*]] = icmp slt i8 [[B]], 0
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[NEG]], i8 0, i8 [[AB]]
+; CHECK-NEXT:    [[BX:%.*]] = sub i8 [[A]], [[X:%.*]]
+; CHECK-NEXT:    call void @use(i8 [[BX]])
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[BX]], [[SEL]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %ab = sub i8 %a, %b
+  %neg = icmp slt i8 %a, 0
+  %sel = select i1 %neg, i8 0, i8 %ab
+  %bx = sub i8 %b, %x
+  call void @use(i8 %bx)
+  %sum = add i8 %bx, %sel
+  %cmp = icmp eq i8 %sum, 0
+  ret i1 %cmp
+}
+
+define i1 @sub_add_select_cmp_negative(i8 %a, i8 %b, i8 %x) {
+; CHECK-LABEL: @sub_add_select_cmp_negative(
+; CHECK-NEXT:    [[AB:%.*]] = sub i8 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    [[NEG:%.*]] = icmp eq i8 [[B]], 0
+; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[NEG]], i8 0, i8 [[AB]]
+; CHECK-NEXT:    [[BX:%.*]] = sub i8 [[A]], [[X:%.*]]
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i8 [[BX]], [[SEL]]
+; CHECK-NEXT:    ret i1 [[CMP]]
+;
+  %ab = sub i8 %a, %b
+  %neg = icmp eq i8 %a, 0
+  %sel = select i1 %neg, i8 0, i8 %ab
+  %bx = sub i8 %b, %x
+  %sum = add i8 %bx, %sel
+  %cmp = icmp eq i8 %sum, 0
+  ret i1 %cmp
+}
+
 ;.
 ; CHECK: attributes #[[ATTR0:[0-9]+]] = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
 ;.
