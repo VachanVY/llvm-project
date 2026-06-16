@@ -30,9 +30,11 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/PatternMatch.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Transforms/InstCombine/InstCombiner.h"
 #include <bitset>
+#include <cstdio>
 
 using namespace llvm;
 using namespace PatternMatch;
@@ -1281,6 +1283,21 @@ Instruction *InstCombinerImpl::foldICmpWithZero(ICmpInst &Cmp) {
       return new ICmpInst(Pred, Stripped,
                           Constant::getNullValue(Stripped->getType()));
 
+  {
+    Value *A, *B, *X, *Cond;
+    if (Pred == ICmpInst::ICMP_EQ &&
+        match(Cmp.getOperand(0),
+              m_c_Add(
+                  m_Sub(m_Value(B), m_Value(X)),
+                  m_Select(m_Value(Cond),
+                          m_Zero(),
+                          m_Sub(m_Value(A), m_Deferred(B))))) &&
+        match(Cmp.getOperand(1), m_Zero())) {
+      Value *NewSel = Builder.CreateSelect(Cond, B, A);
+      return new ICmpInst(Pred, NewSel, X);
+    }
+  }
+  
   return nullptr;
 }
 
