@@ -17382,22 +17382,37 @@ SDValue DAGCombiner::visitSIGN_EXTEND_INREG(SDNode *N) {
   }
 
   // fold (sext_inreg (extload x)) -> (sextload x)
+  // fold (sext_inreg (freeze (extload x))) -> (freeze (sextload x))
   // If sextload is not supported by target, we can only do the combine when
   // load has one use. Doing otherwise can block folding the extload with other
   // extends that the target does support.
-  if (ISD::isEXTLoad(N0.getNode()) && ISD::isUNINDEXEDLoad(N0.getNode())) {
-    auto *LN0 = cast<LoadSDNode>(N0);
-    if (ExtVT == LN0->getMemoryVT() &&
-        ((!LegalOperations && LN0->isSimple() && N0.hasOneUse()) ||
-         TLI.isLoadLegal(VT, ExtVT, LN0->getAlign(), LN0->getAddressSpace(),
-                         ISD::SEXTLOAD, false))) {
-      SDValue ExtLoad =
-          DAG.getExtLoad(ISD::SEXTLOAD, DL, VT, LN0->getChain(),
-                         LN0->getBasePtr(), ExtVT, LN0->getMemOperand());
-      CombineTo(N, ExtLoad);
-      CombineTo(N0.getNode(), ExtLoad, ExtLoad.getValue(1));
-      AddToWorklist(ExtLoad.getNode());
-      return SDValue(N, 0); // Return N so it doesn't get rechecked!
+  {
+    bool FrozenExt = N0.getOpcode() == ISD::FREEZE;
+    SDValue LoadOp = FrozenExt ? N0.getOperand(0) : N0;
+    if (ISD::isEXTLoad(LoadOp.getNode()) &&
+        ISD::isUNINDEXEDLoad(LoadOp.getNode())) {
+      auto *LN0 = cast<LoadSDNode>(LoadOp);
+      if (ExtVT == LN0->getMemoryVT() &&
+          ((!LegalOperations && LN0->isSimple() && LoadOp.hasOneUse()) ||
+           TLI.isLoadLegal(VT, ExtVT, LN0->getAlign(), LN0->getAddressSpace(),
+                           ISD::SEXTLOAD, false))) {
+        if (!FrozenExt || LoadOp.hasOneUse()) {
+          SDValue ExtLoad =
+              DAG.getExtLoad(ISD::SEXTLOAD, DL, VT, LN0->getChain(),
+                             LN0->getBasePtr(), ExtVT, LN0->getMemOperand());
+          SDValue Res = FrozenExt ? DAG.getFreeze(ExtLoad) : ExtLoad;
+          CombineTo(N, Res);
+          if (FrozenExt) {
+            CombineTo(N0.getNode(), Res);
+            DAG.ReplaceAllUsesOfValueWith(SDValue(LN0, 1), ExtLoad.getValue(1));
+            recursivelyDeleteUnusedNodes(LN0);
+          } else {
+            CombineTo(N0.getNode(), ExtLoad, ExtLoad.getValue(1));
+          }
+          AddToWorklist(ExtLoad.getNode());
+          return SDValue(N, 0); // Return N so it doesn't get rechecked!
+        }
+      }
     }
   }
 
